@@ -44,7 +44,7 @@ addUsersAndGroups :: String -> ReaderT API.MyTardisConfig IO ()
 addUsersAndGroups configFile = do
     xs <- liftIO $ runSqlQuery configFile
 
-    forM_ xs $ \(projectNumber, (address :: B.ByteString)) -> do
+    forM_ xs $ \(projectNumber, address :: B.ByteString) ->
         if is5Digits projectNumber && isValid address
             then do liftIO $ putStrLn $ "Creating group: " ++ show projectNumber
                     project <- API.getOrCreateGroup $ "CAI " ++ show projectNumber
@@ -65,7 +65,7 @@ addUsersAndGroups configFile = do
             else liftIO $ putStrLn $ "Error: invalid project ID or email address: " ++ show (projectNumber, address)
 
 extractRestGroupInfo :: [RestTypes.RestUser] -> [(String, [String])]
-extractRestGroupInfo users = map (\u -> (map toLower $ RestTypes.ruserUsername u, map RestTypes.groupName $ RestTypes.ruserGroups u)) users
+extractRestGroupInfo = map (\u -> (map toLower $ RestTypes.ruserUsername u, map RestTypes.groupName $ RestTypes.ruserGroups u))
 
 uniq :: (Eq t, H.Hashable t) => [t] -> [t]
 uniq xs = HM.keys $ HM.fromList $ map (\x -> (x, ())) xs
@@ -97,9 +97,9 @@ removeUsers :: String -> ReaderT API.MyTardisConfig IO ()
 removeUsers configFile = do
     xs <- liftIO $ runSqlQuery configFile
 
-    let cmrUsers = filter (\(projectNumber, (address :: B.ByteString)) -> is5Digits projectNumber && isValid address) xs
+    let cmrUsers = filter (\(projectNumber, address :: B.ByteString) -> is5Digits projectNumber && isValid address) xs
 
-    let cmrUserHashSet = HS.fromList . (map ((map toLower . map w2c . B.unpack) . snd)) $ cmrUsers
+    let cmrUserHashSet = HS.fromList . map ((map (toLower . w2c) . B.unpack) . snd) $ cmrUsers
 
     imagetroveUsers <- API.getUsers
 
