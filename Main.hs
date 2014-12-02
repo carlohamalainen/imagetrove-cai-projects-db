@@ -20,7 +20,7 @@ import Data.Char (toLower)
 import Database.MySQL.Simple
 import qualified Data.ByteString as B
 
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, when, unless)
 
 import Text.Email.Validate (isValid)
 
@@ -46,21 +46,23 @@ addUsersAndGroups configFile = do
 
     forM_ xs $ \(projectNumber, (address :: B.ByteString)) -> do
         if is5Digits projectNumber && isValid address
-            then do liftIO $ putStrLn $ "create group: " ++ show projectNumber
+            then do liftIO $ putStrLn $ "Creating group: " ++ show projectNumber
                     project <- API.getOrCreateGroup $ "CAI " ++ show projectNumber
-                    liftIO $ print project
 
-                    if B.length address < 29
-                        then do liftIO $ putStrLn $ "create user: " ++ show address
-                                user <- API.getOrCreateUser Nothing  Nothing (map w2c $ B.unpack address) [] False
+                    liftIO $ putStrLn $ "Creating user: " ++ show address
+                    user <- API.getOrCreateUser Nothing  Nothing (map w2c $ B.unpack address) [] False
 
-                                case (user, project) of
-                                    (Success user', Success project') -> do API.addUserToGroup user' project'
-                                                                            liftIO $ putStrLn $ "Add user to group..." -- FIXME more descriptive
-                                    _                                 -> liftIO $ putStrLn $ "Error: could not add user " ++ show user ++ " to group " ++ show project
-                                liftIO $ print user
-                        else do liftIO $ putStrLn $ "skipping too-long email address: " ++ show address
-            else liftIO $ do putStrLn $ "skip..." ++ show (projectNumber, address)
+                    case (user, project) of
+                        (Success user', Success project') -> do liftIO $ putStrLn $ "Adding " ++ show address ++ " to group " ++ show projectNumber
+                                                                user'' <- API.addUserToGroup user' project'
+                                                                case user'' of
+                                                                    Success _  -> return ()
+                                                                    Error  err -> liftIO $ putStrLn $ "Error: could not add user " ++ show user ++ " to group " ++ show project ++ ": " ++ err
+                                                                return ()
+                        (Error err, _)                    -> liftIO $ putStrLn $ "Error: could not get user: " ++ show err
+                        (_, Error err)                    -> liftIO $ putStrLn $ "Error: could not get group: " ++ show err
+                    liftIO $ print user
+            else liftIO $ putStrLn $ "Error: invalid project ID or email address: " ++ show (projectNumber, address)
 
 extractRestGroupInfo :: [RestTypes.RestUser] -> [(String, [String])]
 extractRestGroupInfo users = map (\u -> (map toLower $ RestTypes.ruserUsername u, map RestTypes.groupName $ RestTypes.ruserGroups u)) users
@@ -82,9 +84,14 @@ deleteUsersGroups userEmail = do
 
     case (u, groups) of
         (Success u', Success groups') -> forM_ groups' $ \g -> do liftIO $ putStrLn $ "Removing group access: " ++ show (RestTypes.groupName g)
-                                                                  _ <- API.removeUserFromGroup u' g
-                                                                  return ()
-        _                             -> error "FIXME101"
+                                                                  u'' <- API.removeUserFromGroup u' g
+
+                                                                  case u'' of
+                                                                    (Success _) -> return ()
+                                                                    (Error err) -> liftIO $ do putStrLn $ "Error: could not remove user from group: " ++ err
+                                                                                               return ()
+        (Error err, _)                -> liftIO $ putStrLn $ "Error: could not get user: " ++ show err
+        (_, Error err)                -> liftIO $ putStrLn $ "Error: could not get group: " ++ show err
 
 removeUsers :: String -> ReaderT API.MyTardisConfig IO ()
 removeUsers configFile = do
@@ -96,11 +103,11 @@ removeUsers configFile = do
 
     imagetroveUsers <- API.getUsers
 
-    let caiUsersInImageTrove = (filter $ (flip HS.member) cmrUserHashSet . fst) . (filter userHasCAIProject) . extractRestGroupInfo <$> imagetroveUsers
+    let caiUsersInImageTrove = filter (flip HS.member cmrUserHashSet . fst) . filter userHasCAIProject . extractRestGroupInfo <$> imagetroveUsers
 
     case caiUsersInImageTrove of
-        (Success caiUsersInImageTrove') -> forM_ caiUsersInImageTrove' $ \(u, _) -> when (not $ u `HS.member` cmrUserHashSet) (deleteUsersGroups u)
-        _                               -> error "FIXME100"
+        (Success caiUsersInImageTrove') -> forM_ caiUsersInImageTrove' $ \(u, _) -> unless (u `HS.member` cmrUserHashSet) (deleteUsersGroups u)
+        (Error err)                     -> liftIO $ putStrLn $ "Error: could not get list of users in ImageTrove: " ++ show err
 
 addGroupAccessToExperiment :: RestTypes.RestExperiment -> String -> ReaderT API.MyTardisConfig IO ()
 addGroupAccessToExperiment e caiProjectID = do
@@ -117,14 +124,14 @@ doExperiments = do
 
     case experiments of
         Success experiments' -> forM_ experiments' doExperiment
-        Error e              -> liftIO $ putStrLn $ "Error while retrieving experiment list: " ++ e
+        Error err            -> liftIO $ putStrLn $ "Error while retrieving experiment list: " ++ err
 
 doExperiment e = do
-    m <- (map snd) <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
+    m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    case (map (M.lookup "CAI Project") m) of
+    case map (M.lookup "CAI Project") m of
         [Just caiProjectID] -> addGroupAccessToExperiment e caiProjectID
-        err                 -> liftIO $ putStrLn $ "Warning: none/too many CAI project IDs found: " ++ show err
+        err                 -> liftIO $ putStrLn $ "Error: none/too many CAI project IDs found: " ++ show err
 
 runSqlQuery :: String -> IO [(Integer, B.ByteString)]
 runSqlQuery configFile = do
@@ -157,6 +164,6 @@ main = do
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
-        Just mytardisOpts' -> (flip runReaderT) mytardisOpts' $ do removeUsers       f
-                                                                   addUsersAndGroups f
-                                                                   doExperiments
+        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do removeUsers       f
+                                                                 addUsersAndGroups f
+                                                                 doExperiments
