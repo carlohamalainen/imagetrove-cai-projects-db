@@ -3,6 +3,7 @@
 module Main where
 
 import qualified Data.Map as M
+import qualified Data.MultiMap as MM
 
 import Data.Maybe
 
@@ -129,8 +130,8 @@ doExperiments = do
 doExperiment e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    case map (M.lookup "CAI Project") m of
-        [Just caiProjectID] -> addGroupAccessToExperiment e caiProjectID
+    case map (MM.lookup "CAI Project") m of
+        [[caiProjectID]]    -> addGroupAccessToExperiment e caiProjectID
         err                 -> liftIO $ putStrLn $ "Error: none/too many CAI project IDs found: " ++ show err
 
 runSqlQuery :: String -> IO [(Integer, B.ByteString)]
