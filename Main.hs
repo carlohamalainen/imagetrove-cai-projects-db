@@ -134,6 +134,21 @@ doExperiment e = do
         [[caiProjectID]]    -> addGroupAccessToExperiment e caiProjectID
         err                 -> liftIO $ putStrLn $ "Error: none/too many CAI project IDs found: " ++ show err
 
+setInstrumentOperators e = do
+    m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
+
+    let operators  = concat $ map (MM.lookup "Operator")   m
+        instrument = concat $ map (MM.lookup "Instrument") m
+
+    forM instrument $ \instr -> do
+
+        -- caiProjectID' <- API.getOrCreateGroup caiProjectID
+
+        forM operators $ \op -> do
+            liftIO $ print (instr, op)
+
+    return ()
+
 runSqlQuery :: String -> IO [(Integer, B.ByteString)]
 runSqlQuery configFile = do
     cfg <- DC.load [Required configFile]
@@ -165,6 +180,10 @@ main = do
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
-        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do removeUsers       f
-                                                                 addUsersAndGroups f
-                                                                 doExperiments
+        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do -- tmp for testing
+                                                                 -- removeUsers       f
+                                                                 -- addUsersAndGroups f
+                                                                 -- doExperiments
+
+                                                                Success experiments <- API.getExperiments
+                                                                forM_ experiments setInstrumentOperators
