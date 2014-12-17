@@ -7,6 +7,8 @@ import qualified Data.MultiMap as MM
 
 import Data.Maybe
 
+import Data.Traversable (traverse)
+
 import qualified Data.Configurator as DC
 import Data.Configurator.Types
 
@@ -140,12 +142,32 @@ setInstrumentOperators e = do
     let operators  = concat $ map (MM.lookup "Operator")   m
         instrument = concat $ map (MM.lookup "Instrument") m
 
-    forM instrument $ \instr -> do
+    liftIO $ putStrLn $ "setInstrumentOperators, experiment title: " ++ RestTypes.eiTitle e
+    liftIO $ putStrLn $ "setInstrumentOperators, experiment id: "    ++ show (RestTypes.eiID e)
 
-        -- caiProjectID' <- API.getOrCreateGroup caiProjectID
+    forM_ instrument $ \instr -> do
 
         forM operators $ \op -> do
-            liftIO $ print (instr, op)
+            let groupName = "OPERATOR :: " ++ instr
+
+            liftIO $ putStrLn $ "Creating operator group: " ++ groupName
+            group <- API.getOrCreateGroup groupName
+
+            liftIO $ putStrLn $ "Creating user: " ++ op
+            user <- API.getOrCreateUser Nothing  Nothing op [] False
+
+            case (user, group) of
+                (Success user', Success group') -> do user'' <- API.addUserToGroup user' group'
+                                                      case user'' of
+                                                        Success _   -> liftIO $ putStrLn $ "Added " ++ op ++ " to group " ++ groupName
+                                                        Error   err -> liftIO $ putStrLn $ "Error while adding user to group: " ++ err
+                (Error err,     Success _)      -> liftIO $ putStrLn $ "Error while creating user: "  ++ err
+                (Success _,     Error err)      -> liftIO $ putStrLn $ "Error while creating group: " ++ err
+                (Error userErr, Error groupErr) -> liftIO $ do putStrLn $ "Error while creating user: "  ++ userErr
+                                                               putStrLn $ "Error while creating group: " ++ groupErr
+
+
+            return ()
 
     return ()
 
@@ -180,10 +202,9 @@ main = do
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
-        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do -- tmp for testing
-                                                                 -- removeUsers       f
-                                                                 -- addUsersAndGroups f
-                                                                 -- doExperiments
+        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do removeUsers       f
+                                                                 addUsersAndGroups f
+                                                                 doExperiments
 
-                                                                Success experiments <- API.getExperiments
-                                                                forM_ experiments setInstrumentOperators
+                                                                 experiments <- API.getExperiments
+                                                                 traverse (mapM setInstrumentOperators) experiments
