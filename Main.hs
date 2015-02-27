@@ -23,7 +23,7 @@ import Data.Char (toLower)
 import Database.MySQL.Simple
 import qualified Data.ByteString as B
 
-import Control.Monad (forM_, when, unless)
+import Control.Monad (forever, forM_, when, unless)
 
 import Text.Email.Validate (isValid)
 
@@ -39,6 +39,9 @@ import qualified Data.HashMap.Lazy as HM
 import qualified Data.Hashable as H
 
 import qualified Data.HashSet as HS
+import Control.Concurrent (threadDelay)
+
+import Text.Printf (printf)
 
 is5Digits :: Integer -> Bool
 is5Digits n = Prelude.length (show n) == 5
@@ -196,9 +199,9 @@ runSqlQuery configFile = do
             query_ conn "select CI_list.project_number, email.address from CI_list, email WHERE CI_list.who = email.owner"
         _ -> error "Missing configuration for MySQL database?"
 
-main = do
+mainAction = do
     let f = "acl.conf"
-    mytardisOpts <- Main.getConfig "http://localhost" f Nothing
+    mytardisOpts <- Main.getConfig "http://localhost" "http://localhost:8042" f Nothing
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
@@ -208,3 +211,9 @@ main = do
 
                                                                  experiments <- API.getExperiments
                                                                  traverse (mapM setInstrumentOperators) experiments
+
+main = forever $ do
+    mainAction
+    let sleepMinutes = 1
+    liftIO $ printf "Sleeping for %d minutes...\n" sleepMinutes
+    liftIO $ threadDelay $ sleepMinutes * (60 * 10^6)
