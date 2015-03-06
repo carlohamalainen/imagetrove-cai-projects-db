@@ -29,3 +29,5 @@ executable mysql-haskell-test
                      , containers
                      , multimap
                      , configurator
+                     , old-locale
+                     , time
