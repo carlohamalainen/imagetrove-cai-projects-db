@@ -142,7 +142,7 @@ doExperiment e = do
 setInstrumentOperators e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    let operators  = concat $ map (MM.lookup "Operator")   m
+    let operators  = concat $ map words $ concat $ map (MM.lookup "Operator")   m
         instrument = concat $ map (MM.lookup "Instrument") m
 
     liftIO $ putStrLn $ "setInstrumentOperators, experiment title: " ++ RestTypes.eiTitle e
