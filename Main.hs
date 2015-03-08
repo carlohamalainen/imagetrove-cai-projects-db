@@ -55,8 +55,8 @@ isRecentEnough hours t = case t of
 is5Digits :: Integer -> Bool
 is5Digits n = Prelude.length (show n) == 5
 
-getCAIProjectID :: RestTypes.RestExperiment -> ReaderT API.MyTardisConfig IO [Integer]
-getCAIProjectID e = do
+getProjectID :: RestTypes.RestExperiment -> ReaderT API.MyTardisConfig IO [Integer]
+getProjectID e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
     -- FIXME the 'read' can fail and the drop 4 is dodgy.
@@ -66,7 +66,7 @@ addUsersAndGroups :: String -> [RestTypes.RestExperiment] -> ReaderT API.MyTardi
 addUsersAndGroups configFile recentExperiments = do
 
     -- Only look at recently updated experiments.
-    -- (recentProjectIDs :: HS.HashSet Integer) <- (HS.fromList . concat) <$> mapM getCAIProjectID recentExperiments
+    -- (recentProjectIDs :: HS.HashSet Integer) <- (HS.fromList . concat) <$> mapM getProjectID recentExperiments
 
     _xs <- liftIO $ runSqlQuery configFile
 
@@ -111,9 +111,9 @@ extractRestGroupInfo = map (\u -> (map toLower $ RestTypes.ruserUsername u, map 
 uniq :: (Eq t, H.Hashable t) => [t] -> [t]
 uniq xs = HM.keys $ HM.fromList $ map (\x -> (x, ())) xs
 
-userHasCAIProject :: (String, [String]) -> Bool
-userHasCAIProject (_, []) = False
-userHasCAIProject (_, groups) = any (isPrefixOf "CAI") groups
+userHasProject :: (String, [String]) -> Bool
+userHasProject (_, []) = False
+userHasProject (_, groups) = any (isPrefixOf "Project") groups
 
 deleteUsersGroups :: String -> ReaderT API.MyTardisConfig IO ()
 deleteUsersGroups userEmail = do
@@ -144,7 +144,7 @@ removeUsers configFile = do
 
     imagetroveUsers <- API.getUsers
 
-    let caiUsersInImageTrove = filter (flip HS.member cmrUserHashSet . fst) . filter userHasCAIProject . extractRestGroupInfo <$> imagetroveUsers
+    let caiUsersInImageTrove = filter (flip HS.member cmrUserHashSet . fst) . filter userHasProject . extractRestGroupInfo <$> imagetroveUsers
 
     case caiUsersInImageTrove of
         (Success caiUsersInImageTrove') -> forM_ caiUsersInImageTrove' $ \(u, _) -> unless (u `HS.member` cmrUserHashSet) (deleteUsersGroups u)
