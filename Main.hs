@@ -60,7 +60,7 @@ getCAIProjectID e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
     -- FIXME the 'read' can fail and the drop 4 is dodgy.
-    return $ filter is5Digits $ map read $ drop 4 $ concat $ map (MM.lookup "CAI Project") m
+    return $ filter is5Digits $ map read $ drop 4 $ concat $ map (MM.lookup "Project") m
 
 addUsersAndGroups :: String -> [RestTypes.RestExperiment] -> ReaderT API.MyTardisConfig IO ()
 addUsersAndGroups configFile recentExperiments = do
@@ -88,7 +88,7 @@ addUsersAndGroups configFile recentExperiments = do
     forM_ xs $ \(projectNumber, address :: B.ByteString) ->
         if is5Digits projectNumber && isValid address
             then do liftIO $ putStrLn $ "Creating group: " ++ show projectNumber
-                    project <- API.getOrCreateGroup $ "CAI " ++ show projectNumber
+                    project <- API.getOrCreateGroup $ "Project " ++ show projectNumber
 
                     liftIO $ putStrLn $ "Creating user: " ++ show address
                     user <- API.getOrCreateUser Nothing  Nothing (map w2c $ B.unpack address) [] False
@@ -165,9 +165,9 @@ doExperiments recentExperiments = forM_ recentExperiments doExperiment
 doExperiment e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    case map (MM.lookup "CAI Project") m of
+    case map (MM.lookup "Project") m of
         [[caiProjectID]]    -> addGroupAccessToExperiment e caiProjectID
-        err                 -> liftIO $ putStrLn $ "Error: none/too many CAI project IDs found: " ++ show err
+        err                 -> liftIO $ putStrLn $ "Error: none/too many project IDs found: " ++ show err
 
 setInstrumentOperators e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
