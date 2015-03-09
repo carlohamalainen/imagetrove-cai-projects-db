@@ -3,7 +3,6 @@
 module Main where
 
 import qualified Data.Map as M
-import qualified Data.MultiMap as MM
 
 import Data.Maybe
 
@@ -59,8 +58,8 @@ getProjectID :: RestTypes.RestExperiment -> ReaderT API.MyTardisConfig IO [Integ
 getProjectID e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    -- FIXME the 'read' can fail and the drop 4 is dodgy.
-    return $ filter is5Digits $ map read $ drop 4 $ concat $ map (MM.lookup "Project") m
+    -- FIXME the 'read' can fail and the drop 8 is dodgy.
+    return $ filter is5Digits $ map read $ map (drop 8) $ catMaybes $ map (M.lookup "Project") m
 
 addUsersAndGroups :: String -> [RestTypes.RestExperiment] -> ReaderT API.MyTardisConfig IO ()
 addUsersAndGroups configFile recentExperiments = do
@@ -165,15 +164,15 @@ doExperiments recentExperiments = forM_ recentExperiments doExperiment
 doExperiment e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    case map (MM.lookup "Project") m of
-        [[caiProjectID]]    -> addGroupAccessToExperiment e caiProjectID
+    case map (M.lookup "Project") m of
+        [Just caiProjectID] -> addGroupAccessToExperiment e caiProjectID
         err                 -> liftIO $ putStrLn $ "Error: none/too many project IDs found: " ++ show err
 
 setInstrumentOperators e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
-    let operators  = concat $ map words $ concat $ map (MM.lookup "Operator")   m
-        instrument = concat $ map (MM.lookup "Instrument") m
+    let operators  = concat $ map words $ catMaybes $ map (M.lookup "Operator")   m
+        instrument = catMaybes $ map (M.lookup "Instrument") m
 
     liftIO $ putStrLn $ "setInstrumentOperators, experiment title: " ++ RestTypes.eiTitle e
     liftIO $ putStrLn $ "setInstrumentOperators, experiment id: "    ++ show (RestTypes.eiID e)
@@ -243,7 +242,7 @@ getRecentExperiments hours = do
 
 mainAction = do
     let f = "acl.conf"
-    mytardisOpts <- Main.getConfig "http://localhost" "http://localhost:8042" f Nothing
+    mytardisOpts <- Main.getConfig "http://localhost" "http://localhost:8042" f Nothing False
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
