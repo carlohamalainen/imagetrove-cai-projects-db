@@ -46,6 +46,8 @@ import Data.Time.Clock (getCurrentTime, diffUTCTime, secondsToDiffTime, UTCTime(
 import Data.Time.Format (parseTime)
 import System.Locale (defaultTimeLocale)
 
+import Acid
+
 isRecentEnough :: Double -> Maybe Double -> Bool
 isRecentEnough hours t = case t of
     Nothing -> True

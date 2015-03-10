@@ -32,3 +32,4 @@ executable mysql-haskell-test
                      , old-locale
                      , time
                      , acid-state
+                     , safecopy
