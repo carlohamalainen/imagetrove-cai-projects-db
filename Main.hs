@@ -2,6 +2,9 @@
 
 module Main where
 
+import qualified Data.Set as Set
+import Data.Set (Set)
+
 import qualified Data.Map as M
 
 import Data.Maybe
@@ -48,10 +51,8 @@ import System.Locale (defaultTimeLocale)
 
 import Acid
 
-isRecentEnough :: Double -> Maybe Double -> Bool
-isRecentEnough hours t = case t of
-    Nothing -> True
-    Just t' -> t' <= hours*60*60
+statePrefix :: String
+statePrefix = "state_"
 
 is5Digits :: Integer -> Bool
 is5Digits n = Prelude.length (show n) == 5
@@ -65,26 +66,21 @@ getProjectID e = do
 
 addUsersAndGroups :: String -> [RestTypes.RestExperiment] -> ReaderT API.MyTardisConfig IO ()
 addUsersAndGroups configFile recentExperiments = do
-
     -- Only look at recently updated experiments.
-    -- (recentProjectIDs :: HS.HashSet Integer) <- (HS.fromList . concat) <$> mapM getProjectID recentExperiments
+    (recentProjectIDs :: HS.HashSet Integer) <- (HS.fromList . concat) <$> mapM getProjectID recentExperiments
 
-    _xs <- liftIO $ runSqlQuery configFile
+    xs0 <- liftIO $ runSqlQuery configFile
 
-    -- FIXME For testing, I got my heart dataset uploaded to the Orthanc instance with
-    -- ReferringPhysician as 10000, so add myself in here manually since I don't have
-    -- write access to the CAI projects DB.
-    let xs = [ (10000, "c.hamalainen@uq.edu.au")
-             , (10000, "a.janke1@uq.edu.au")
-             , (10000, "m.barth@uq.edu.au")
-             , (10000, "a.alnajjar@uq.edu.au")
-             , (10000, "a.hockings@uq.edu.au")
+    -- Test dataset specific to the CAI:
+    let xs1 = [ (10000, "c.hamalainen@uq.edu.au")
+              , (10000, "a.janke1@uq.edu.au")
+              , (10000, "m.barth@uq.edu.au")
+              , (10000, "a.alnajjar@uq.edu.au")
+              , (10000, "a.hockings@uq.edu.au")
+              ]
 
-             ] ++ _xs
-
-    -- FIXME Use acid-state to store the last updated thing for updated experiments...
-
-    -- let xs = filter (flip HS.member recentProjectIDs . fst) _xs
+    -- Project IDs of updated experiments:
+    let xs = filter (flip HS.member recentProjectIDs . fst) (xs0 ++ xs1)
 
     forM_ xs $ \(projectNumber, address :: B.ByteString) ->
         if is5Digits projectNumber && isValid address
@@ -167,7 +163,8 @@ doExperiment e = do
     m <- map snd <$> mapM API.handyParameterSet (RestTypes.eiParameterSets e)
 
     case map (M.lookup "Project") m of
-        [Just caiProjectID] -> addGroupAccessToExperiment e caiProjectID
+        [Just caiProjectID] -> do addGroupAccessToExperiment e caiProjectID
+                                  liftIO $ addExperiment statePrefix e
         err                 -> liftIO $ putStrLn $ "Error: none/too many project IDs found: " ++ show err
 
 setInstrumentOperators e = do
@@ -231,33 +228,34 @@ runSqlQuery configFile = do
             query_ conn "select CI_list.project_number, email.address from CI_list, email WHERE CI_list.who = email.owner"
         _ -> error "Missing configuration for MySQL database?"
 
-getRecentExperiments :: Double -> ReaderT API.MyTardisConfig IO (Result [RestTypes.RestExperiment])
-getRecentExperiments hours = do
+getRecentExperiments' :: ReaderT API.MyTardisConfig IO (Result [RestTypes.RestExperiment])
+getRecentExperiments' = do
     experiments <- API.getExperiments
 
     case experiments of
-        Success experiments' -> do now <- liftIO getCurrentTime
-                                   let updatedTimes = map ((parseTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Q") . RestTypes.eiUpdateTime) experiments' :: [Maybe UTCTime]
-                                       deltas = map (fmap $ realToFrac . diffUTCTime now) updatedTimes
-                                   return $ Success $ map snd $ filter (isRecentEnough hours . fst) (zip deltas experiments')
         e@(Error _)          -> return e
+        Success experiments' -> do s <- liftIO $ loadSet statePrefix
+                                   return $ Success $ Set.toList $ Set.difference (Set.fromList experiments') s
 
-mainAction = do
+mainAction mytardisOpts' f = flip runReaderT mytardisOpts' $ do
+    recentExperiments <- getRecentExperiments'
+
+    case recentExperiments of
+        Error err                   -> liftIO $ putStrLn $ "Error: " ++ err
+        Success recentExperiments'  -> do removeUsers       f
+                                          addUsersAndGroups f recentExperiments'
+                                          doExperiments recentExperiments'
+
+    experiments <- API.getExperiments
+    traverse (mapM setInstrumentOperators) experiments
+
+main = do
     let f = "acl.conf"
     mytardisOpts <- Main.getConfig "http://localhost" "http://localhost:8042" f Nothing False
 
     case mytardisOpts of
         Nothing            -> error $ "Could not read config file: " ++ f
-        Just mytardisOpts' -> flip runReaderT mytardisOpts' $ do Success recentExperiments <- getRecentExperiments 2.0 -- FIXME bad pattern matching
-                                                                 removeUsers       f
-                                                                 addUsersAndGroups f recentExperiments
-                                                                 doExperiments recentExperiments
-
-                                                                 experiments <- API.getExperiments
-                                                                 traverse (mapM setInstrumentOperators) experiments
-
-main = forever $ do
-    mainAction
-    let sleepMinutes = 1
-    liftIO $ printf "Sleeping for %d minutes...\n" sleepMinutes
-    liftIO $ threadDelay $ sleepMinutes * (60 * 10^6)
+        Just mytardisOpts' -> forever $ do mainAction mytardisOpts' f
+                                           let sleepMinutes = 1
+                                           liftIO $ printf "Sleeping for %d minutes...\n" sleepMinutes
+                                           liftIO $ threadDelay $ sleepMinutes * (60 * 10^6)

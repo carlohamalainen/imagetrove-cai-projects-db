@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Acid (loadMap, updateLastUpdate) where
+module Acid (loadSet, addExperiment) where
 
 import Control.Monad.Reader
 import Control.Monad.State
@@ -13,41 +13,69 @@ import Data.Typeable
 
 import qualified Data.Map as Map
 
--- Key/Value example copied from acid-state example: https://github.com/acid-state/acid-state/blob/master/examples/KeyValue.hs
+import Network.ImageTrove.Main
+import Network.MyTardis.RestTypes
 
-type Key   = String
-type Value = Maybe ZonedTime
+import qualified Data.Set as Set
+import Data.Set (Set)
 
-data KeyValue = KeyValue !(Map.Map Key Value) deriving (Typeable)
+data ExperimentSet = ExperimentSet !(Set RestExperiment) deriving (Typeable)
 
-$(deriveSafeCopy 0 'base ''KeyValue)
+$(deriveSafeCopy 0 'base ''RestParameter)
+$(deriveSafeCopy 0 'base ''RestSchema)
+$(deriveSafeCopy 0 'base ''RestExperimentParameterSet)
+$(deriveSafeCopy 0 'base ''RestPermission)
+$(deriveSafeCopy 0 'base ''RestGroup)
+$(deriveSafeCopy 0 'base ''RestObjectACL)
+$(deriveSafeCopy 0 'base ''RestExperiment)
+$(deriveSafeCopy 0 'base ''ExperimentSet)
 
-insertKey :: Key -> Value -> Update KeyValue ()
-insertKey key value = do
-    KeyValue m <- get
-    put (KeyValue (Map.insert key value m))
+insertExperiment :: RestExperiment -> Update ExperimentSet ()
+insertExperiment e = do
+    ExperimentSet s <- get
+    put $ ExperimentSet $ Set.insert e s
 
-lookupKey :: Key -> Query KeyValue (Maybe Value)
-lookupKey key = do
-    KeyValue m <- ask
-    return (Map.lookup key m)
+{-
 
-getMapInternal :: Query KeyValue (Map.Map Key Value)
-getMapInternal = do
-    KeyValue m <- ask
-    return m
+isMember :: RestExperiment -> Query ExperimentSet Bool
+isMember e = do
+    ExperimentSet s <- get
+    return True -- $ Set.member e s
 
-$(makeAcidic ''KeyValue ['insertKey, 'lookupKey, 'getMapInternal])
+Doesn't compile:
 
-loadMap :: FilePath -> IO (Map.Map Key Value)
-loadMap fp = do
-    acid <- openLocalStateFrom fp (KeyValue Map.empty)
-    m <- query acid GetMapInternal
+    Acid.hs:41:24:
+        No instance for (MonadState ExperimentSet (Query ExperimentSet))
+          arising from a use of `get'
+        Possible fix:
+          add an instance declaration for
+          (MonadState ExperimentSet (Query ExperimentSet))
+        In a stmt of a 'do' block: ExperimentSet s <- get
+        In the expression:
+          do { ExperimentSet s <- get;
+               return True }
+        In an equation for `isMember':
+            isMember e
+              = do { ExperimentSet s <- get;
+                     return True }
+-}
+
+getSetInternal :: Query ExperimentSet (Set RestExperiment)
+getSetInternal = do
+    ExperimentSet s <- ask
+    return s
+
+$(makeAcidic ''ExperimentSet ['insertExperiment, 'getSetInternal])
+
+loadSet :: FilePath -> IO (Set RestExperiment)
+loadSet fp = do
+    acid <- openLocalStateFrom fp (ExperimentSet Set.empty)
+    m <- query acid GetSetInternal
     closeAcidState acid
     return m
 
-updateLastUpdate :: FilePath -> String -> Maybe ZonedTime -> IO ()
-updateLastUpdate fp hash lastUpdate = do
-    acid <- openLocalStateFrom fp (KeyValue Map.empty)
-    _ <- update acid (InsertKey hash lastUpdate)
+addExperiment :: FilePath -> RestExperiment -> IO ()
+addExperiment fp e = do
+    acid <- openLocalStateFrom fp (ExperimentSet Set.empty)
+    _ <- update acid (InsertExperiment e)
     closeAcidState acid
